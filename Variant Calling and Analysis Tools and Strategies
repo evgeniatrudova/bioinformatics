@@ -1,0 +1,12 @@
+GATK (Genome Analysis Toolkit)
+SAMtools
+Picard
+VCFtools
+SnpEff
+Pindel
+HaploTypeCaller
+Vardict
+LOFTEE
+VEP (Variant Effect Predictor)
+VCF2MAF
+PyClone
