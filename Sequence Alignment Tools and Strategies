@@ -1,0 +1,132 @@
+Strategies and tools
+______________________________________
+Sequence Alignment Tools and Strategies
+______________________________________
+
+*
+BLAST & Align tools in databases
+https://blast.ncbi.nlm.nih.gov/Blast.cgi
+https://www.uniprot.org/align
+For comparing nucleotide or protein sequences to sequence databases.
+Distinguishing feature: High speed and sensitivity for finding local alignments.
+Psi-BLAST
+For detecting distant relationships between protein sequences.
+Distinguishing feature: Iterative search using position-specific scoring matrices.
+*
+Clustal Omega
+https://www.ebi.ac.uk/jdispatcher/msa/clustalo
+For multiple sequence alignment of protein and nucleotide sequences.
+Distinguishing feature: High accuracy and scalability for large datasets.
+*
+MAFFT (Multiple Alignment using Fast Fourier Transform)
+https://www.ebi.ac.uk/jdispatcher/msa/mafft
+For large-scale multiple sequence alignment.
+Distinguishing feature: Fast and accurate, especially for sequences with high similarity.
+*
+T-Coffee
+https://tcoffee.crg.eu/
+When to use: For accurate multiple sequence alignment.
+Distinguishing feature: Combines results from several alignment methods to improve accuracy.
+*
+MUSCLE
+https://pubmed.ncbi.nlm.nih.gov/15034147/
+https://www.drive5.com/muscle/ 
+For multiple sequence alignment.
+Distinguishing feature: High accuracy and speed, suitable for medium to large datasets.
+*
+BWA (Burrows-Wheeler Aligner)
+https://bio-bwa.sourceforge.net/
+For mapping low-divergent sequences against a large reference genome.
+Distinguishing feature: Fast and memory-efficient, suitable for short reads.
+*
+Bowtie
+https://bowtie-bio.sourceforge.net/index.shtml
+For aligning short DNA sequences to the reference genome.
+Distinguishing feature: Ultra-fast and memory-efficient for short read alignment.
+Bowtie2
+For aligning long DNA sequences.
+Distinguishing feature: Improved accuracy and speed over Bowtie for long reads.
+GMAP (Genomic Mapping and Alignment Program)
+
+*
+HISAT2
+https://daehwankimlab.github.io/hisat2/
+For alignment of both DNA and RNA sequences.
+Distinguishing feature: Fast and sensitive alignment, supports large genomes.
+*
+STAR (Spliced Transcripts Alignment to a Reference)
+https://hbctraining.github.io/Intro-to-rnaseq-hpc-O2/lessons/03_alignment.html 
+For aligning RNA-Seq reads.
+Distinguishing feature: Handles spliced reads and provides fast and accurate results.
+*
+TopHat
+https://academic.oup.com/bioinformatics/article/25/9/1105/203994
+Center for Computational Biology at Johns Hopkins University
+https://tophat.cbcb.umd.edu/
+For discovering splice junctions in RNA-Seq data.
+Distinguishing feature: Builds on Bowtie, specifically for RNA-Seq data analysis.
+*
+Smith-Waterman Algorithm
+https://ir.lib.uth.gr/xmlui/bitstream/handle/11615/48888/16488.pdf?sequence=1&isAllowed=y
+https://cs.stanford.edu/people/eroberts/courses/soco/projects/computers-and-the-hgp/smith_waterman.html
+When to use: For local sequence alignment.
+Distinguishing feature: Provides optimal local alignment, but computationally intensive.
+*
+EMBOSS Water
+https://www.bioinformatics.nl/cgi-bin/emboss/help/water
+For local sequence alignment using the Smith-Waterman algorithm.
+Distinguishing feature: Part of the EMBOSS suite, suitable for detailed pairwise alignment.
+*
+Needleman-Wunsch Algorithm
+https://vlab.amrita.edu/?sub=3&brch=274&sim=1431&cnt=1
+For global sequence alignment.
+Distinguishing feature: Provides optimal global alignment for entire sequences.
+*
+Mummer
+For aligning large DNA sequences, such as whole genomes.
+Distinguishing feature: Highly efficient for large-scale sequence alignment.
+*
+Kalign
+For multiple sequence alignment of protein and nucleotide sequences.
+Distinguishing feature: Very fast, suitable for aligning large datasets.
+*
+ProbCons
+For multiple sequence alignment of proteins.
+Distinguishing feature: High accuracy, probabilistic consistency-based alignment.
+*
+Dialign
+For segment-based multiple sequence alignment.
+Distinguishing feature: Aligns segments rather than individual residues, useful for sequences with rearrangements.
+
+
+SSAHA (Sequence Search and Alignment by Hashing Algorithm)
+For fast database searches.
+Distinguishing feature: Uses hashing for rapid sequence alignment.
+
+
+Exonerate
+For aligning DNA and protein sequences.
+Distinguishing feature: Flexible alignment strategies, suitable for various sequence types.
+
+CLUSTALW
+For multiple sequence alignment.
+Distinguishing feature: Widely used, balances speed and accuracy.
+
+MAQ (Mapping and Assembly with Quality)
+For mapping short reads and SNP calling.
+Distinguishing feature: Combines alignment with variant calling, suitable for small genomes.
+
+SOAP2
+For aligning short reads to a reference genome.
+Distinguishing feature: High speed and efficiency, especially for large-scale projects.
+
+
+Paywall or License Required Sequence Alignment Tools and Strategies
+
+Novoalign
+For aligning short reads to a reference genome.
+Distinguishing feature: High sensitivity and specificity, handles base calling errors.
+
+Geneious Alignment
+For easy-to-use sequence alignment.
+Distinguishing feature: Integrated in a user-friendly bioinformatics suite.
