@@ -26,7 +26,7 @@ zcat raw_data/sample_R1.fq.gz | head -n 8 | grep "@"       Cofirms that the file
 df -h .                                                    How much space you have left, this needs to be double of ls -lh value.
 
 python  name_script.py                                     Start command to run script ONLY on local system or when using "drop" directly to server by FileZilla or Cyberduck 
-scp                                                        Move script from local to server or to FileZilla
+scp                                                        Move script from local terminal to server or to FileZilla. This is not types into server terminal. 
 ssh                                                        Connect to server
 
 Manual script run  
