@@ -7,7 +7,7 @@ pwd                    It will spit out a path like /home/username/project  You 
 mkdir parent_polder    Creates folder with name parent_folder
 ls                     Command to show lists with files
 cd folder_file         Moves you into the file
-cd..                   Moves you out of file
+cd ..                   Moves you out of file
 cd ~                   Home jump for you, if stuck
 mv                     Correct file placement command
 mv file  lost_file.fastaq.gz parent_folder/child_folder/   Moves lost_file to child_folder
