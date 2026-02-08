@@ -110,6 +110,8 @@ def run_trimming(r1_input, r2_input, output_dir):
     adapter_r1 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC"
     adapter_r2 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGTAGATCTCGGTGGTCGCCGTATCATT"
 
+    # Trims both R1 and R2, for regular cutadapt
+    """  
     command = [
         "cutadapt",
         "-j", "0",              
@@ -121,6 +123,23 @@ def run_trimming(r1_input, r2_input, output_dir):
         "-p", r2_out,           
         r1_input, r2_input      
     ]
+    """
+
+    # Trims only R2 for zUMIs
+    command = [
+        "cutadapt",
+        "-j", "0",              
+        # Only trim adapter from Read 2 (cDNA)
+        "-A", adapter_r2,       
+        "-q", "20",             
+        "-m", "20",  
+        # We tell cutadapt NOT to throw away pairs if only R2 is short
+        "--pair-filter=any",          
+        "-o", r1_out,           
+        "-p", r2_out,           
+        r1_input, r2_input      
+    ]
+
 
     print(f"--- Starting trimming for: {base_name} ---")
     
