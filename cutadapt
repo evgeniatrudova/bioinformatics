@@ -29,27 +29,50 @@ python  name_script.py                                     Start command to run 
 scp                                                        Move script from local terminal to server or to FileZilla. This is not typed into server terminal. 
 ssh                                                        Connect to server
 
-Manual script run  
-scp   [local_file]    [ user]@[server_address]  :  [destination_path]
-scp name_script.py student_name@server.university.edu:/home/student_name/project/
+mkdir -p /home/student/project/trimmed_results             Creates folder for results of your script, otherwise they will be generated on Home page
+ls -lh processed_data/                                     Control of where the result file is
+mv *_trimmed.fastq.gz processed_data/                      To move result files from HOME to folder
+================================================================================
+REMOTE CONNECTION:
+================================================================================
+1. ON YOUR Terminal:  Connect to local file. 
+   scp [local_file] [user]@[server_address]:[destination_path]
+   Example: scp trim_script.py student@uni.edu:/home/student/project/
+
+2. ON THE SERVER Terminal: Log in, moves to correct folder where the local file is connected to. Runs the script. 
+   ssh student@uni.edu  # Log in
+   cd /home/student/project/
+   python trim_script.py
+
 ================================================================================
 """
 
 
+"""
+================================================================================
+Python code
+================================================================================
+r1_input (str): Path to the Read 1 FASTQ file.
+r2_input (str): Path to the Read 2 FASTQ file.
+output_dir (str): Directory where the cleaned files will be saved.
+base_name = os.path.basename(r1_input).replace("_R1.fastq.gz", "")  We strip the extension to create a clean base name
+adapter_r1/ adapter_r2   standard sequences usually found in Illumina runs, that are commonly trimmed off
+"-j", "0", Use all available CPU cores for speed
+"-a", adapter_r1, Trim adapter from 3' end of Read 1
+"-A", adapter_r2, Trim adapter from 3' end of Read 2
+"-q", "20", Quality trim: remove bases with Phred score < 20
+"-m", "20", Discard fragments shorter than 20bp (noise managment)
+"-o", r1_out, Output path for Read 1
+"-p", r2_out, Output path for Read 2 (paired)
+r1_input, r2_input The raw input files
 
-# r1_input (str): Path to the Read 1 FASTQ file.
-# r2_input (str): Path to the Read 2 FASTQ file.
-# output_dir (str): Directory where the cleaned files will be saved.
-# base_name = os.path.basename(r1_input).replace("_R1.fastq.gz", "")  We strip the extension to create a clean base name
-# adapter_r1/ adapter_r2   standard sequences usually found in Illumina runs, that are commonly trimmed off
-# "-j", "0", Use all available CPU cores for speed
-# "-a", adapter_r1, Trim adapter from 3' end of Read 1
-# "-A", adapter_r2, Trim adapter from 3' end of Read 2
-# "-q", "20", Quality trim: remove bases with Phred score < 20
-# "-m", "20", Discard fragments shorter than 20bp (noise managment)
-# "-o", r1_out, Output path for Read 1
-# "-p", r2_out, Output path for Read 2 (paired)
-# r1_input, r2_input The raw input files
+Expected results: 
+INPUT: Paired end FASTAQ files 
+OUTPUT:  
+R1. Cleaned Forward Reads Adapters removed, low-quality ends cut off, short fragments deleted.
+R2. Cleaned Reverse Reads. Match to R1 clean.
+sample1_trim_report.txt  Sanity TXT.How many reads were processed and what percentage had adapters.
+"""
 
 import subprocess
 import os
