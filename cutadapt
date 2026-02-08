@@ -66,12 +66,21 @@ adapter_r1/ adapter_r2   standard sequences usually found in Illumina runs, that
 "-p", r2_out, Output path for Read 2 (paired)
 r1_input, r2_input The raw input files
 
-Expected results: 
+Expected results for R1 and R2 trimming: 
 INPUT: Paired end FASTAQ files 
 OUTPUT:  
 R1. Cleaned Forward Reads Adapters removed, low-quality ends cut off, short fragments deleted.
 R2. Cleaned Reverse Reads. Match to R1 clean.
 sample1_trim_report.txt  Sanity TXT.How many reads were processed and what percentage had adapters.
+
+Expected results for R2 trimming for UMI: 
+INPUT: Paired end FASTAQ files 
+OUTPUT:  
+R1. Same as Raw.
+R2. Adapters removed. Short fragments deleted.
+sample1_trim_report.txt  Sanity TXT.How many reads were processed and what percentage had adapters. High pairs, --pair-filter=any prevents throwing away pairs just because R1 wasn't trimmed.
+
+
 """
 
 import subprocess
