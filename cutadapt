@@ -1,0 +1,131 @@
+
+"""
+================================================================================
+BASH TERMINAL File managment
+================================================================================
+pwd                    It will spit out a path like /home/username/project  You need to control this path, as it can be lost/changed.
+mkdir parent_polder    Creates folder with name parent_folder
+ls                     Command to show lists with files
+cd folder_file         Moves you into the file
+cd..                   Moves you out of file
+cd ~                   Home jump for you, if stuck
+mv                     Correct file placement command
+mv file  lost_file.fastaq.gz parent_folder/child_folder/   Moves lost_file to child_folder
+mv ../lost_file.fastaq.gz                                  Moves lost file into the file that YOU are currently inside of.
+ls parent_folder/child_folder/                             Control of file movement
+find . -name "filename"                                    Finds lost file
+================================================================================
+BASH TERMINAL Sanity Controls
+================================================================================
+conda activate bio_env                                     Activate your environment
+which cutadapt                                             Prints path to cutadapt or quick message that cutadapt needs downloading
+python --version                                           Version of Python 
+ls -lh raw_data/                                           Shows low large the raw_data files are
+zless raw_data/sample_R1.fq.gz                             Controls that file is not empty. Press 'q' to quit the view.
+zcat raw_data/sample_R1.fq.gz | head -n 8 | grep "@"       Cofirms that the file is FASTAQ and not a TXT. Common mistake. 
+df -h .                                                    How much space you have left, this needs to be double of ls -lh value.
+
+python  name_script.py                                     Start command to run script ONLY on local system or when using "drop" directly to server by FileZilla or Cyberduck 
+scp                                                        Move script from local to server or to FileZilla
+ssh                                                        Connect to server
+
+Manual script run  
+scp   [local_file]    [ user]@[server_address]  :  [destination_path]
+scp name_script.py student_name@server.university.edu:/home/student_name/project/
+================================================================================
+"""
+
+
+
+# r1_input (str): Path to the Read 1 FASTQ file.
+# r2_input (str): Path to the Read 2 FASTQ file.
+# output_dir (str): Directory where the cleaned files will be saved.
+# base_name = os.path.basename(r1_input).replace("_R1.fastq.gz", "")  We strip the extension to create a clean base name
+# adapter_r1/ adapter_r2   standard sequences usually found in Illumina runs, that are commonly trimmed off
+# "-j", "0", Use all available CPU cores for speed
+# "-a", adapter_r1, Trim adapter from 3' end of Read 1
+# "-A", adapter_r2, Trim adapter from 3' end of Read 2
+# "-q", "20", Quality trim: remove bases with Phred score < 20
+# "-m", "20", Discard fragments shorter than 20bp (noise managment)
+# "-o", r1_out, Output path for Read 1
+# "-p", r2_out, Output path for Read 2 (paired)
+# r1_input, r2_input The raw input files
+
+import subprocess
+import os
+import sys
+import shutil
+
+def run_trimming(r1_input, r2_input, output_dir):
+    """
+    Cutadapt w Sanity run.
+    """
+    
+    # --- Tool Availability ---
+    # Ensure cutadapt is actually installed and in the PATH before starting
+    if shutil.which("cutadapt") is None:
+        print("ERROR: 'cutadapt' not found in system PATH. Please install it or activate your conda env.")
+        sys.exit(1)
+
+    # --- Input Validation ---
+    # Control if the files are missing or empty
+    for f in [r1_input, r2_input]:
+        if not os.path.exists(f):
+            print(f"ERROR: Input file {f} does not exist.")
+            return
+        if os.path.getsize(f) == 0:
+            print(f"ERROR: Input file {f} is empty. Aborting.")
+            return
+
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    base_name = os.path.basename(r1_input).replace("_R1.fastq.gz", "")
+    r1_out = os.path.join(output_dir, f"{base_name}_R1_trimmed.fastq.gz")
+    r2_out = os.path.join(output_dir, f"{base_name}_R2_trimmed.fastq.gz")
+    
+    adapter_r1 = "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC"
+    adapter_r2 = "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGTAGATCTCGGTGGTCGCCGTATCATT"
+
+    command = [
+        "cutadapt",
+        "-j", "0",              
+        "-a", adapter_r1,       
+        "-A", adapter_r2,       
+        "-q", "20",             
+        "-m", "20",             
+        "-o", r1_out,           
+        "-p", r2_out,           
+        r1_input, r2_input      
+    ]
+
+    print(f"--- Starting trimming for: {base_name} ---")
+    
+    try:
+        # --- Logging & Error Handling ---
+        # Capture stderr specifically—this is where Cutadapt sends warnings
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        
+        # Write log file even if it succeeds
+        log_path = os.path.join(output_dir, f"{base_name}_trim_report.txt")
+        with open(log_path, "w") as f:
+            f.write(result.stdout)
+            
+        print(f"Successfully finished! Cleaned files saved in: {output_dir}")
+        
+    except subprocess.CalledProcessError as e:
+        # --- Crash ---
+        # Removal of corrupted files created by crashes.
+
+        print(f"CRITICAL ERROR: Cutadapt failed. Removing partial files...")
+        for partial_file in [r1_out, r2_out]:
+            if os.path.exists(partial_file):
+                os.remove(partial_file)
+        print(f"Error Details: {e.stderr}")
+
+# --- Validation and Safety of Files ---
+if __name__ == "__main__":
+    # Example safety: Check if any arguments were passed or use defaults
+    output_folder = "processed_data"
+    run_trimming("sample1_R1.fastq.gz", "sample1_R2.fastq.gz", output_folder)
+
