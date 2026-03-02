@@ -1,0 +1,91 @@
+import subprocess
+import os
+import shutil
+import sys
+from multiprocessing import Pool
+
+def check_fastqc_installed():
+    """
+    PURPOSE: Verifies the FastQC tool is available in the environment.
+    
+    WHY THIS CHOICE: 
+    In a scalable pipeline, different nodes may have different tools 
+    installed. Checking this first prevents 'command not found' errors 
+    during a long-running batch job.
+    """
+    if shutil.which("fastqc") is None:
+        print("ERROR: 'fastqc' not found. Please run 'conda activate bio_env'.")
+        sys.exit(1)
+
+def run_single_fastqc(file_path, output_dir):
+    """
+    PURPOSE: Executes the FastQC command on a single compressed file.
+    
+    WHY THIS CHOICE: 
+    Breaking this into a single-file function allows us to use 
+    Python's 'multiprocessing' to run multiple files at once on a 
+    multi-core server.
+    """
+    # Choice: Create output directory if it doesn't exist to prevent crash
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Choice: Use '--noextract' to keep the server clean. 
+    # FastQC generates a .zip and a .html; extracting them creates thousands 
+    # of tiny files that clutter the filesystem.
+    command = ["fastqc", "-o", output_dir, "--noextract", file_path]
+    
+    try:
+        print(f"RUNNING: FastQC on {os.path.basename(file_path)}")
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        return f"SUCCESS: {file_path}"
+    except subprocess.CalledProcessError as e:
+        return f"FAILED: {file_path} | Error: {e.stderr}"
+
+def run_parallel_fastqc(file_list, output_dir, threads):
+    """
+    PURPOSE: Manages the parallel execution of FastQC tasks.
+    
+    WHY THIS CHOICE: 
+    Bioinformatics servers have many cores. Running FastQC 
+    sequentially is a waste of resources. A 'Pool' of workers 
+    processes the files as fast as the hardware allows.
+    """
+    # Choice: Limit threads to the length of the file list if it's smaller 
+    # than the total CPU count to avoid overhead.
+    num_workers = min(len(file_list), threads)
+    
+    print(f"--- Launching Parallel FastQC with {num_workers} workers ---")
+    
+    with Pool(num_workers) as pool:
+        # 'starmap' passes multiple arguments (file and output_dir) to the function
+        results = pool.starmap(run_single_fastqc, [(f, output_dir) for f in file_list])
+    
+    for r in results:
+        print(r)
+
+if __name__ == "__main__":
+    # --- CONFIGURATION ---
+    # Choice: Define input files. In a database context, these paths 
+    # would be passed from your first trimming script.
+    RAW_DATA_DIR = "raw_data"
+    FASTQC_OUT = "fastqc_results"
+    
+    # Choice: Automated file discovery. This finds all fastq.gz files 
+    # in the folder so you don't have to list them manually.
+    files_to_check = [
+        os.path.join(RAW_DATA_DIR, f) 
+        for f in os.listdir(RAW_DATA_DIR) 
+        if f.endswith(".fastq.gz") or f.endswith(".fq.gz")
+    ]
+
+    # --- EXECUTION ---
+    check_fastqc_installed()
+    
+    if not files_to_check:
+        print(f"No files found in {RAW_DATA_DIR}. Check your paths!")
+    else:
+        # Choice: Dynamic threading based on the machine's capability
+        total_cores = os.cpu_count() or 2
+        run_parallel_fastqc(files_to_check, FASTQC_OUT, total_cores)
+        
+        print(f"\nSanity Check Complete. View the .html reports in: {os.path.abspath(FASTQC_OUT)}")
