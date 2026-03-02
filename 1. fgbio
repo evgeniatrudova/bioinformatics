@@ -1,0 +1,82 @@
+import subprocess
+import os
+import sys
+import shutil
+
+def check_fgbio_installed():
+    """
+    PURPOSE: Checks for fgbio (Java-based tool) availability.
+    
+    WHY THIS CHOICE: 
+    fgbio is a JAR-based suite. This check ensures the command is 
+    correctly aliased or available in the user's path (common in 
+    conda environments).
+    """
+    if shutil.which("fgbio") is None:
+        print("ERROR: 'fgbio' not found. Is your bio_env active?")
+        sys.exit(1)
+
+def run_consensus_pipeline(input_bam, output_prefix):
+    """
+    PURPOSE: Performs Molecular Deduplication using fgbio.
+    
+    WHY THIS CHOICE:
+    - GroupReadsByUmi: Identifies which reads belong to the same 
+      original molecule based on coordinates and UMI tags.
+    - CallMolecularConsensusReads: The "Consensus" step. It looks 
+      at the base quality across a family and picks the most likely 
+      true biological base.
+    """
+    
+    # 1. Grouping reads by UMI
+    # CHOICE: Strategy 'paired' is used because EV-RNA data is paired-end.
+    grouped_bam = f"{output_prefix}.grouped.bam"
+    group_cmd = [
+        "fgbio", "GroupReadsByUmi",
+        "--input", input_bam,
+        "--output", grouped_bam,
+        "--strategy", "paired",
+        "--edits", "1" # Allows for 1-base error in the UMI sequence itself
+    ]
+
+    # 2. Calling Consensus
+    # CHOICE: We use '--min-reads 1' to keep all data, but 
+    # in high-accuracy pipelines, you might set this to 3 to 
+    # only keep molecules seen multiple times.
+    consensus_bam = f"{output_prefix}.consensus.unmapped.bam"
+    call_cmd = [
+        "fgbio", "CallMolecularConsensusReads",
+        "--input", grouped_bam,
+        "--output", consensus_bam,
+        "--min-reads", "1",
+        "--min-input-base-quality", "20"
+    ]
+
+    print(f"--- Grouping reads by UMI for: {input_bam} ---")
+    try:
+        subprocess.run(group_cmd, check=True)
+        print(f"--- Calling Consensus Reads ---")
+        subprocess.run(call_cmd, check=True)
+        
+        # Cleanup intermediate grouped file to save server space
+        if os.path.exists(grouped_bam):
+            os.remove(grouped_bam)
+            
+        print(f"Consensus BAM created: {consensus_bam}")
+    except subprocess.CalledProcessError as e:
+        print(f"CRITICAL ERROR: fgbio failed. Details: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    # --- CONFIGURATION ---
+    # Choice: This script expects the BAM from your STAR alignment 
+    # that has been tagged with UMIs.
+    INPUT_BAM = "alignment_results/EV_Sample_001Aligned.sortedByCoord.out.bam"
+    OUT_DIR = "consensus_results"
+    os.makedirs(OUT_DIR, exist_ok=True)
+    
+    prefix = os.path.join(OUT_DIR, "EV_Sample_001")
+    
+    # --- EXECUTION ---
+    check_fgbio_installed()
+    run_consensus_pipeline(INPUT_BAM, prefix)
