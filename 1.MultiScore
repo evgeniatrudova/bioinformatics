@@ -1,0 +1,122 @@
+import pandas as pd
+import numpy as np
+import logging
+import sys
+import os
+from typing import Dict
+
+# --- LOGGING CONFIGURATION ---
+# WHY: In  pipelines, 'print' is insufficient. Logging track errors across hundreds of samples and save them to a persistent file.
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+
+def calculate_dna_score(vcf_df: pd.DataFrame) -> float:
+    """
+    PURPOSE: Converts a list of mutations into a single 'Mutational Burden' score.
+    
+    STEP 1: Validate input structure to prevent crashes on empty/malformed VCFs.
+    STEP 2: Apply biological weighting (e.g., TP53 mutations are more 'significant').
+    STEP 3: Return a normalized float for ML processing.
+    """
+    # ROBUSTNESS: Check if the dataframe is empty or missing columns
+    if vcf_df.empty:
+        logging.info("DNA Analysis: No somatic variants detected. Score set to 0.")
+        return 0.0
+
+    # BIOLOGICAL LOGIC: Not all genes are equal. We weight known 'drivers' higher.
+    # Mutations in these genes are less likely to be noise and more likely to be cancer.
+    driver_genes = ['TP53', 'EGFR', 'KRAS', 'PIK3CA']
+    
+    # We apply a 2.0x multiplier to VAFs found in driver genes
+    vcf_df['weighted_vaf'] = vcf_df.apply(
+        lambda row: row['VAF'] * 2.0 if row['GENE'] in driver_genes else row['VAF'], 
+        axis=1
+    )
+    
+    # Return the sum of weighted VAFs as the total 'DNA Burden'
+    return float(vcf_df['weighted_vaf'].sum())
+
+def calculate_frag_score(motif_counts: Dict[str, int]) -> float:
+    """
+    PURPOSE: Calculates the Motif Diversity Score (MDS).
+    
+    STEP 1: Calculate total fragments to allow for frequency normalization.
+    STEP 2: Protect against 'Zero Division' errors (Empty BAM files).
+    STEP 3: Compare 'CCCA' frequency against a baseline healthy population.
+    """
+    total_obs = sum(motif_counts.values())
+    
+    # ROBUSTNESS: If the BAM file was empty, total_obs will be 0. 
+    # We must catch this to prevent the script from crashing with a ZeroDivisionError.
+    if total_obs == 0:
+        logging.warning("Fragmentomics: No fragments analyzed. Check mapping quality.")
+        return 0.0
+    
+    # BIOLOGICAL LOGIC: The 'CCCA' motif is a known biomarker for cancer-derived cuts.
+    # We calculate how many times we saw CCCA vs all other possible 4-mer motifs.
+    ccca_freq = motif_counts.get('CCCA', 0) / total_obs
+    
+    # NORMALIZATION: 0.01 (1%) is the typical baseline for healthy individuals.
+    # Anything significantly higher than 1.0 here suggests a tumor fragmentation signal.
+    return float(ccca_freq / 0.01)
+
+def run_multimodal_fusion(dna_s: float, frag_s: float, ev_cargo_s: float) -> float:
+    """
+    PURPOSE: Fuses three independent biological signals into a single diagnostic score.
+    
+    STEP 1: Construct a 'Feature Vector' for Machine Learning.
+    STEP 2: Check for 'NaN' or 'Inf' values which would break the ML model.
+    STEP 3: Apply a Sigmoid-weighted integration to generate a final probability.
+    """
+    # ROBUSTNESS: Ensure all inputs are valid numbers before doing math.
+    if not all(np.isfinite([dna_s, frag_s, ev_cargo_s])):
+        logging.error("Fusion Error: Data contains non-finite values (NaN/Inf).")
+        return 0.0
+
+    # THE WEIGHTED MODEL: 
+    # DNA (0.4) is specific but low sensitivity (it's often 0 in early cancer).
+    # Fragmentomics (0.3) has high sensitivity but lower specificity.
+    # EV-Cargo (0.3) provides the functional context of the tumor.
+    combined_signal = (dna_s * 0.4) + (frag_s * 0.3) + (ev_cargo_s * 0.3)
+    
+    # SIGMOID FUNCTION: This maps any range of numbers into a 0.0 to 1.0 probability.
+    # 0.5 is the 'uncertain' midpoint. >0.8 is a very strong cancer signal.
+    probability = 1 / (1 + np.exp(-combined_signal))
+    
+    return float(probability)
+
+if __name__ == "__main__":
+    # --- SIMULATED DATA (In production, these come from your previous scripts) ---
+    sample_id = "EV_SAMPLE_DB_001"
+    
+    # 1. DNA Data (Filtered Somatic VCF)
+    mock_vcf = pd.DataFrame({'GENE': ['TP53', 'NOTCH1'], 'VAF': [0.008, 0.002]})
+    
+    # 2. Fragmentomics (End-motif Counts)
+    mock_motifs = {'CCCA': 250, 'AAAA': 1200, 'TATA': 800}
+    
+    # 3. EV-Cargo RNA (Gene expression biomarkers)
+    mock_rna_signal = 1.4 
+
+    try:
+        logging.info(f"--- Processing Integrated Analysis for: {sample_id} ---")
+        
+        # Step-by-Step Execution with Logging
+        dna_score = calculate_dna_score(mock_vcf)
+        frag_score = calculate_frag_score(mock_motifs)
+        final_prob = run_multimodal_fusion(dna_score, frag_score, mock_rna_signal)
+        
+        # FINAL SANITY CHECK: Flag results that are highly contradictory.
+        # Example: If DNA is high but Fragmentomics is zero, it could be a sequencing artifact.
+        if dna_score > 0.1 and frag_score < 0.2:
+            logging.warning("DIAGNOSTIC ANOMALY: High DNA VAF with low fragmentation signal.")
+
+        logging.info(f"FINAL RESULT for {sample_id}: {final_prob:.2%} Cancer Probability.")
+        
+    except Exception as e:
+        # ROBUSTNESS: This catch-all prevents one bad sample from killing a batch run.
+        logging.critical(f"UNEXPECTED PIPELINE CRASH: {str(e)}", exc_info=True)
+        sys.exit(1)
