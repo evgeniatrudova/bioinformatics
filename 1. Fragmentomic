@@ -1,0 +1,92 @@
+import pysam
+import os
+import sys
+from collections import Counter
+import pandas as pd
+import matplotlib.pyplot as plt
+
+def analyze_fragment_motifs(input_bam, motif_length=4, max_reads=1000000):
+    """
+    PURPOSE: Extracts the genomic sequence at the start of each fragment (end-motifs).
+    
+    WHY THIS CHOICE: 
+    - End-motifs are biological signals of nuclease activity. 
+    - Using 'pysam' allows us to access the 'query_sequence', which is the actual 
+      read data, and its orientation (Forward vs Reverse).
+    """
+    motif_counts = Counter()
+    total_fragments = 0
+
+    print(f"--- Analyzing End-Motifs for: {os.path.basename(input_bam)} ---")
+    
+    # CHOICE: Use 'pysam.AlignmentFile' for high-speed BAM access in Python.
+    with pysam.AlignmentFile(input_bam, "rb") as bam:
+        for read in bam:
+            # SANITY CHECK: Only analyze primary, mapped, and non-duplicate reads
+            if read.is_unmapped or read.is_duplicate or read.is_secondary:
+                continue
+            
+            # CHOICE: Only look at the start of the fragment (5' end).
+            # For Read 1, this is the beginning of the sequence.
+            sequence = read.query_sequence
+            if sequence and len(sequence) >= motif_length:
+                motif = sequence[:motif_length]
+                motif_counts[motif] += 1
+                total_fragments += 1
+            
+            # SCALABILITY CHOICE: Limit the number of reads for a 'profile check' 
+            # to prevent long runtimes on massive files.
+            if total_fragments >= max_reads:
+                break
+
+    return motif_counts, total_fragments
+
+def plot_motif_frequencies(motif_counts, total, output_plot):
+    """
+    PURPOSE: Visualizes the top 10 most frequent end-motifs.
+    
+    WHY THIS CHOICE:
+    In Fragmentomics, we look for the 'MDS' (Motif Diversity Score). 
+    A shift in the frequency of the top motifs (like 'CCCA') can 
+    indicate a tumor-derived signal.
+    """
+    # Convert to percentages for normalized comparison across different samples
+    df = pd.DataFrame.from_dict(motif_counts, orient='index', columns=['count'])
+    df['frequency'] = (df['count'] / total) * 100
+    df = df.sort_values('frequency', ascending=False).head(10)
+
+    plt.figure(figsize=(10, 6))
+    df['frequency'].plot(kind='bar', color='orchid')
+    
+    plt.title("Top 10 Fragment End-Motifs (Fragmentomics)", fontsize=14)
+    plt.xlabel("4-mer Motif", fontsize=12)
+    plt.ylabel("Frequency (%)", fontsize=12)
+    plt.xticks(rotation=45)
+    plt.grid(axis='y', alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(output_plot)
+    print(f"SUCCESS: Fragmentomics profile saved to: {output_plot}")
+
+if __name__ == "__main__":
+    # --- CONFIGURATION ---
+    # This should be run on the 'Consensus' BAM for the cleanest signal
+    INPUT_BAM = "consensus_results/EV_Sample_001.consensus.bam"
+    OUTPUT_DIR = "fragmentomics_results"
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    plot_path = os.path.join(OUTPUT_DIR, "EV_Sample_001_motifs.png")
+
+    # --- EXECUTION ---
+    try:
+        # Step 1: Extract motifs
+        counts, total = analyze_fragment_motifs(INPUT_BAM)
+        
+        # Step 2: Generate profile
+        if total > 0:
+            plot_motif_frequencies(counts, total, plot_path)
+        else:
+            print("ERROR: No valid reads found for analysis.")
+
+    except Exception as e:
+        print(f"PIPELINE ERROR: {e}")
