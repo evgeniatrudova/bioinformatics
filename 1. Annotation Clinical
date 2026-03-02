@@ -1,0 +1,99 @@
+import subprocess
+import os
+import pandas as pd
+import sys
+import logging
+
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+
+def run_vep_annotation(input_vcf, output_txt):
+    """
+    STEP 1: VEP (Variant Effect Predictor)
+    PURPOSE: Predicts the functional consequence of the mutation.
+    
+    WHY THIS CHOICE: 
+    VEP tells us if the mutation is 'Splicing', 'Missense', or 'Stop-Gained'. 
+    Without this, we only have coordinates (e.g., chr17:7577121), which 
+    are useless for doctors.
+    """
+    if not shutil.which("vep"):
+        logging.error("VEP tool not found in PATH.")
+        return
+
+    # --everything: Runs SIFT, PolyPhen, and other impact predictors
+    # --filter_common: Removes variants seen frequently in the general population
+    command = [
+        "vep",
+        "-i", input_vcf,
+        "-o", output_txt,
+        "--cache", "--offline", "--assembly", "GRCh38",
+        "--everything",
+        "--format", "vcf",
+        "--tab" # Tab-delimited for easy Python parsing
+    ]
+    
+    logging.info(f"--- Running VEP Annotation on {input_vcf} ---")
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as e:
+        logging.error(f"VEP failed: {e}")
+
+def cross_reference_oncokb(vep_results_txt):
+    """
+    STEP 2: OncoKB / Actionability Match
+    PURPOSE: Links mutations to FDA-approved drugs and trials.
+    
+    WHY THIS CHOICE: 
+    A mutation in EGFR (T790M) is actionable (Osimertinib), 
+    while a mutation in an unknown gene might not be. This step 
+    identifies 'Tier 1' (FDA approved) vs 'Tier 3' (Unknown) variants.
+    """
+    logging.info("--- Matching variants with Actionable Drug Databases ---")
+    
+    # In a production environment, this would call the OncoKB API.
+    # Here, we simulate the logic of a Library Match.
+    try:
+        df = pd.read_csv(vep_results_txt, sep='\t', comment='#')
+        
+        # Actionable Library (Simulated Database)
+        actionable_db = {
+            'EGFR:L858R': 'Osimertinib (Tier 1: FDA Approved)',
+            'BRAF:V600E': 'Vemurafenib (Tier 1: FDA Approved)',
+            'KRAS:G12C': 'Sotorasib (Tier 1: FDA Approved)',
+            'TP53:R175H': 'Clinical Trial Eligible (Tier 3)'
+        }
+
+        # Simplified logic: Extract Gene and Protein Change (HGVSp)
+        # and match against the Actionable DB
+        results = []
+        for index, row in df.iterrows():
+            gene = row['SYMBOL']
+            change = row['HGVSp'].split(':')[-1] if 'HGVSp' in row else "Unknown"
+            key = f"{gene}:{change}"
+            
+            drug = actionable_db.get(key, "No FDA drug currently listed")
+            results.append({'Gene': gene, 'Mutation': change, 'Action': drug})
+        
+        return pd.DataFrame(results)
+
+    except Exception as e:
+        logging.error(f"Error during Actionability Match: {e}")
+        return pd.DataFrame()
+
+if __name__ == "__main__":
+    INPUT_VCF = "variant_results/filtered_tumor_only.vcf.gz"
+    VEP_OUT = "variant_results/annotated_variants.txt"
+
+    # Step 1: Functional Annotation
+    run_vep_annotation(INPUT_VCF, VEP_OUT)
+    
+    # Step 2: Actionability Cross-Reference
+    action_df = cross_reference_oncokb(VEP_OUT)
+    
+    if not action_df.empty:
+        print("\n" + "="*60)
+        print("          PRECISION ONCOLOGY: ACTIONABLE TARGETS          ")
+        print("="*60)
+        print(action_df[action_df['Action'].str.contains('FDA|Trial')])
+        print("="*60 + "\n")
