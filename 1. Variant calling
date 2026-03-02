@@ -1,0 +1,89 @@
+import subprocess
+import os
+import sys
+import shutil
+
+def check_gatk_installed():
+    """
+    PURPOSE: Verifies GATK (Genome Analysis Toolkit) is available.
+    
+    WHY THIS CHOICE: 
+    Mutect2 is part of GATK. Because GATK is a Java-heavy tool, 
+    this check ensures the environment is properly configured 
+    before attempting a long-running Bayesian calculation.
+    """
+    if shutil.which("gatk") is None:
+        print("ERROR: 'gatk' not found. Please check your conda bio_env.")
+        sys.exit(1)
+
+def run_mutect2(input_bam, reference_fasta, output_vcf, germline_resource):
+    """
+    PURPOSE: Identifies somatic mutations with ultra-low VAF.
+    
+    WHY THIS CHOICE:
+    - Mutect2's Bayesian model is specifically designed to handle 
+      low-frequency alleles by comparing the likelihood of a 
+      mutation against the likelihood of a mapping/sequencing error.
+    - '--f1r2-tar-gz': This output is vital for 'Orientation Bias' 
+      filtering (e.g., C->A errors caused by oxidation during lab prep).
+    """
+    
+    # Choice: GATK commands follow a specific --argument value format.
+    command = [
+        "gatk", "Mutect2",
+        "-R", reference_fasta,
+        "-I", input_bam,
+        "-O", output_vcf,
+        "--germline-resource", germline_resource, # Used to filter common SNPs
+        "--f1r2-tar-gz", f"{output_vcf}.f1r2.tar.gz"
+    ]
+
+    print(f"--- Starting Bayesian Variant Calling for: {os.path.basename(input_bam)} ---")
+    
+    try:
+        # CHOICE: Capture_output is False here because GATK's progress 
+        # bars are useful to see in the terminal for long runs.
+        subprocess.run(command, check=True)
+        print(f"SUCCESS: VCF generated at {output_vcf}")
+    except subprocess.CalledProcessError as e:
+        print(f"CRITICAL ERROR: Mutect2 failed. Check logs.")
+        sys.exit(1)
+
+def filter_mutations(input_vcf, reference_fasta, filtered_vcf):
+    """
+    PURPOSE: Applies FilterMutectCalls to remove false positives.
+    
+    WHY THIS CHOICE:
+    Raw Mutect2 output contains many candidates. This step uses 
+    learned statistics to keep only high-confidence variants.
+    """
+    command = [
+        "gatk", "FilterMutectCalls",
+        "-R", reference_fasta,
+        "-V", input_vcf,
+        "-O", filtered_vcf
+    ]
+    print(f"--- Applying Quality Filters to {input_vcf} ---")
+    subprocess.run(command, check=True)
+
+if __name__ == "__main__":
+    # --- CONFIGURATION ---
+    # Choice: Use the HG38 reference and the UMI-collapsed BAM
+    REF_GENOME = "/db/genomes/human/hg38.fasta"
+    GERMLINE_DB = "/db/genomes/human/af-only-gnomad.hg38.vcf.gz" # Common human variants
+    
+    INPUT_BAM = "consensus_results/EV_Sample_001.consensus.bam"
+    OUT_DIR = "variant_results"
+    os.makedirs(OUT_DIR, exist_ok=True)
+    
+    raw_vcf = os.path.join(OUT_DIR, "raw_variants.vcf.gz")
+    final_vcf = os.path.join(OUT_DIR, "final_somatic_variants.vcf.gz")
+
+    # --- EXECUTION ---
+    check_gatk_installed()
+    
+    # Step 1: Call Variants
+    run_mutect2(INPUT_BAM, REF_GENOME, raw_vcf, GERMLINE_DB)
+    
+    # Step 2: Refine/Filter
+    filter_mutations(raw_vcf, REF_GENOME, final_vcf)
