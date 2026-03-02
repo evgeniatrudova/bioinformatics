@@ -1,0 +1,92 @@
+import subprocess
+import os
+import sys
+import shutil
+
+def check_gatk():
+    """
+    PURPOSE: Verifies GATK (Genome Analysis Toolkit) is available.
+    
+    WHY: GATK is the industry standard for high-precision genomic filtering. 
+    Without it, manual subtraction would be prone to 'off-by-one' errors 
+    in genomic coordinates.
+    """
+    if shutil.which("gatk") is None:
+        print("ERROR: GATK not found. Please activate your environment.")
+        sys.exit(1)
+
+def run_chip_subtraction(tumor_vcf, wbc_vcf, output_vcf):
+    """
+    PURPOSE: Subtracts WBC variants from Tumor variants to resolve CHIP.
+    
+    THE FALSE POSITIVE PROBLEM: 
+    In liquid biopsy, we sequence DNA found in the plasma (cfDNA/EV-RNA). 
+    However, 90% of that DNA actually comes from dying White Blood Cells (WBCs), 
+    not the tumor. If a student sees a mutation in the plasma, they might 
+    assume it's cancer. 
+    
+    But older WBCs often have 'CHIP' (Clonal Hematopoiesis) mutations. 
+    If you don't 'subtract' the WBC sequence from the Plasma sequence, 
+     you will report a 'False Positive' cancer result that is actually just 
+    a normal part of the patient's aging blood system.
+    """
+    
+    # GATK SelectVariants with --discordance is the 'Subtraction' logic.
+    # It says: "Keep the variants in VCF A, UNLESS they also appear in VCF B."
+    command = [
+        "gatk", "SelectVariants",
+        "-V", tumor_vcf,                # Input A: The 'Mixed' signal (Potential Tumor + WBC noise)
+        "--discordance", wbc_vcf,       # Input B: The 'Noise' template (WBC/Buffy Coat DNA)
+        "-O", output_vcf
+    ]
+
+    print(f"--- Starting CHIP Subtraction ---")
+    print(f"Comparing Plasma vs. Matched WBC to eliminate aging-related noise...")
+    
+    try:
+        subprocess.run(command, check=True)
+        print(f"SUCCESS: False positives removed. Clean VCF: {output_vcf}")
+    except subprocess.CalledProcessError as e:
+        print(f"CRITICAL ERROR: GATK subtraction failed. Check file compatibility.")
+        sys.exit(1)
+
+def calculate_filter_stats(raw_vcf, filtered_vcf):
+    """
+    PURPOSE: Quantifies the "Noise-to-Signal" ratio.
+    
+    WHY THIS MATTERS: 
+    If a student finds 10 mutations and this script removes 9 of them, 
+    the 'False Positive' rate was 90%. This warns the researcher that 
+    the raw data was extremely noisy and the CHIP subtraction was essential.
+    """
+    def count_variants(vcf):
+        # Grep -v '^#' ignores the VCF header lines and counts only the data rows
+        cmd = f"grep -v '^#' {vcf} | wc -l"
+        return int(subprocess.check_output(cmd, shell=True))
+
+    raw_count = count_variants(raw_vcf)
+    filtered_count = count_variants(filtered_vcf)
+    subtracted = raw_count - filtered_count
+
+    print("\n" + "="*40)
+    print("      SCIENTIFIC FILTERING SUMMARY      ")
+    print("="*40)
+    print(f"Raw Variants Found:          {raw_count}")
+    print(f"False Positives (CHIP/WBC):  {subtracted}  <-- These were 'Fake' cancer hits")
+    print(f"Validated Somatic Hits:      {filtered_count}  <-- True tumor signal")
+    
+    if raw_count > 0:
+        noise_pct = (subtracted / raw_count) * 100
+        print(f"Noise Percentage:            {noise_pct:.1f}%")
+    print("="*40 + "\n")
+
+if __name__ == "__main__":
+    # CONFIGURATION: In a scientific database, every 'Tumor' sample 
+    # must have a 'Matched Normal' (WBC) sample for this to work.
+    TUMOR_VCF = "variant_results/final_somatic_variants.vcf.gz"
+    WBC_VCF = "variant_results/wbc_matched_variants.vcf.gz"
+    FINAL_OUT = "variant_results/filtered_tumor_only.vcf.gz"
+
+    check_gatk()
+    run_chip_subtraction(TUMOR_VCF, WBC_VCF, FINAL_OUT)
+    calculate_filter_stats(TUMOR_VCF, FINAL_OUT)
