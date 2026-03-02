@@ -1,0 +1,98 @@
+import subprocess
+import os
+import sys
+import shutil
+import pandas as pd
+import matplotlib.pyplot as plt
+
+def check_dependencies():
+    """
+    PURPOSE: Ensures samtools is available for data extraction.
+    
+    WHY THIS CHOICE: 
+    Samtools is the industry standard for rapid BAM parsing. This 
+    sanity check prevents the script from failing after the 
+    heavy computation is already done.
+    """
+    if shutil.which("samtools") is None:
+        print("ERROR: 'samtools' not found. Please activate your bio_env.")
+        sys.exit(1)
+
+def extract_insert_sizes(input_bam, output_tsv):
+    """
+    PURPOSE: Extracts the Template Length (TLEN) from the BAM file.
+    
+    WHY THIS CHOICE:
+    Using a subprocess pipe to 'samtools view' allows us to stream 
+    the data without loading a 30GB BAM into RAM. We take the 
+    absolute value of the 9th column (TLEN).
+    """
+    print(f"--- Extracting fragment lengths from: {os.path.basename(input_bam)} ---")
+    
+    # Bash logic: view BAM, take column 9, take absolute value, 
+    # filter for lengths between 30 and 500bp (relevant cfDNA range)
+    cmd = f"samtools view {input_bam} | awk '{{print ($9<0?-$9:$9)}}' | awk '$1>30 && $1<500' > {output_tsv}"
+    
+    try:
+        # shell=True is used here to allow the use of pipes (|) and awk logic
+        subprocess.run(cmd, shell=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"CRITICAL ERROR: Samtools extraction failed: {e}")
+        sys.exit(1)
+
+def plot_fragment_distribution(tsv_file, sample_name, plot_path):
+    """
+    PURPOSE: Generates a high-resolution plot of the fragment sizes.
+    
+    WHY THIS CHOICE:
+    Visualisation is the most effective 'Sanity Check'. If the plot 
+    doesn't show a peak at 145-167bp, the sample might be 
+    contaminated with high-molecular-weight genomic DNA (from 
+    white blood cell lysis).
+    """
+    print(f"--- Generating Visualisation for {sample_name} ---")
+    
+    # Load data into pandas
+    data = pd.read_csv(tsv_file, header=None, names=['size'])
+    
+    plt.figure(figsize=(10, 6))
+    
+    # CHOICE: KDE plot (Density) is smoother and more scientific than a standard histogram
+    data['size'].plot(kind='kde', color='teal', linewidth=2)
+    
+    # Add biological markers for "Sanity"
+    plt.axvline(x=145, color='red', linestyle='--', alpha=0.6, label='Tumor Peak (145bp)')
+    plt.axvline(x=167, color='navy', linestyle='--', alpha=0.6, label='Healthy Peak (167bp)')
+    
+    plt.title(f"Fragment Size Distribution: {sample_name}", fontsize=14)
+    plt.xlabel("Insert Size (bp)", fontsize=12)
+    plt.ylabel("Density", fontsize=12)
+    plt.xlim(30, 500)
+    plt.grid(axis='y', alpha=0.3)
+    plt.legend()
+    
+    plt.savefig(plot_path)
+    print(f"SUCCESS: Structural Integrity plot saved at: {plot_path}")
+
+if __name__ == "__main__":
+    # --- CONFIGURATION ---
+    # Choice: Input is the BAM file from your STAR or fgbio script
+    INPUT_BAM = "consensus_results/EV_Sample_001.consensus.bam" 
+    RESULT_DIR = "sanity_structural_checks"
+    os.makedirs(RESULT_DIR, exist_ok=True)
+    
+    temp_tsv = os.path.join(RESULT_DIR, "temp_sizes.tsv")
+    final_plot = os.path.join(RESULT_DIR, "EV_Sample_001_fragment_profile.png")
+    
+    # --- EXECUTION ---
+    check_dependencies()
+    
+    # Step 1: Data Extraction
+    extract_insert_sizes(INPUT_BAM, temp_tsv)
+    
+    # Step 2: Visualisation
+    plot_fragment_distribution(temp_tsv, "EV_Sample_001", final_plot)
+    
+    # Cleanup intermediate TSV to save space
+    if os.path.exists(temp_tsv):
+        os.remove(temp_tsv)
