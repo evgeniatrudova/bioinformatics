@@ -1,0 +1,85 @@
+import subprocess
+import os
+import sys
+import shutil
+
+def check_star_env(genome_dir):
+    """
+    PURPOSE: Verifies STAR is installed and the Genome Index is present.
+    
+    WHY THIS CHOICE: 
+    STAR will crash immediately if the 'SAindex' file is missing from 
+    the genome directory. Checking this early prevents "Silent Failures" 
+    in a database-driven pipeline.
+    """
+    if shutil.which("STAR") is None:
+        print("ERROR: 'STAR' command not found. Please install it or check PATH.")
+        sys.exit(1)
+        
+    if not os.path.exists(os.path.join(genome_dir, "SAindex")):
+        print(f"ERROR: No STAR index found at {genome_dir}. Mapping will fail.")
+        sys.exit(1)
+
+def run_star_mapping(r1_file, r2_file, genome_dir, output_prefix, threads):
+    """
+    PURPOSE: Maps EV-RNA reads to the hg38 genome using splice-junction awareness.
+    
+    WHY THIS CHOICE:
+    - '--readFilesCommand zcat': Allows STAR to read .gz files directly, saving 
+      disk space (no need to unzip).
+    - '--outSAMtype BAM SortedByCoordinate': Skips the extra step of using 
+      'samtools sort' later. Scalable pipelines should minimize intermediate files.
+    - '--outFilterMultimapNmax 20': Standard for EV-RNA to allow common small RNAs 
+      to map to multiple valid locations without being discarded immediately.
+    """
+    
+    # Ensure the output directory exists based on the prefix path
+    out_dir = os.path.dirname(output_prefix)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    command = [
+        "STAR",
+        "--runThreadN", str(threads),
+        "--genomeDir", genome_dir,
+        "--readFilesIn", r1_file, r2_file,
+        "--readFilesCommand", "zcat",
+        "--outSAMtype", "BAM", "SortedByCoordinate", # Output ready-to-use BAM
+        "--outFileNamePrefix", output_prefix,
+        "--outFilterMultimapNmax", "20",              # Handles multi-mapping reads
+        "--alignSJoverhangMin", "8",                  # Minimum overhang for splice junctions
+        "--alignSJDBoverhangMin", "1",
+        "--outSAMattributes", "NH", "HI", "NM", "MD", # Standard SAM tags for downstream tools
+        "--quantMode", "TranscriptomeSAM", "GeneCounts" # Generates counts automatically
+    ]
+
+    print(f"--- Starting STAR Mapping for {os.path.basename(output_prefix)} ---")
+    
+    try:
+        # CHOICE: Capture output to logs. STAR produces a lot of 'Log.out' files,
+        # but capturing stderr helps catch memory allocation errors immediately.
+        subprocess.run(command, check=True)
+        print(f"Mapping Successful! BAM file saved at: {output_prefix}Aligned.sortedByCoord.out.bam")
+    except subprocess.CalledProcessError as e:
+        print(f"CRITICAL ERROR: STAR Mapping failed. Check Log.out for details.")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    # --- CONFIGURATION (hg38 Database) ---
+    HG38_INDEX = "/db/genomes/human/hg38_STAR_index"
+    PROCESSED_DATA = "processed_data"
+    
+    # In a real database pipeline, these names would be dynamic
+    r1 = os.path.join(PROCESSED_DATA, "sample1_R1_prepared.fastq.gz")
+    r2 = os.path.join(PROCESSED_DATA, "sample1_R2_trimmed.fastq.gz")
+    
+    # CHOICE: Prefix helps keep all STAR outputs (Log, SJ, BAM) grouped by sample
+    sample_id = "EV_Sample_001"
+    output_path = f"alignment_results/{sample_id}/"
+    
+    # --- EXECUTION ---
+    # Hardware Choice: STAR is very CPU-hungry. We use all available cores.
+    total_cores = os.cpu_count() or 4
+    
+    check_star_env(HG38_INDEX)
+    run_star_mapping(r1, r2, HG38_INDEX, output_path, total_cores)
