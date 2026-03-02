@@ -1,0 +1,105 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import logging
+
+# --- LOGGING ---
+logging.basicConfig(level=logging.INFO, format='%(message)s')
+
+def calculate_clonal_prevalence(vcf_df, purity=0.3):
+    """
+    PURPOSE: Estimates the fraction of cancer cells carrying a specific mutation.
+    
+    WHY: VAF (Variant Allele Frequency) is affected by sample purity. 
+    PyClone logic normalizes VAF to 'Cellular Prevalance' (CP) so we can 
+    compare different time points accurately.
+    """
+    # Simple PyClone-style normalization: CP = (2 * VAF) / Purity
+    # This assumes a diploid genome; real PyClone accounts for Copy Number (CNV)
+    vcf_df['Cellular_Prevalence'] = (vcf_df['VAF'] * 2) / purity
+    
+    # Cap prevalence at 1.0 (100% of cells)
+    vcf_df['Cellular_Prevalence'] = vcf_df['Cellular_Prevalence'].clip(upper=1.0)
+    
+    return vcf_df
+
+def track_evolution(primary_df, liquid_df):
+    """
+    PURPOSE: Comparison against the 'Private Library' (The Patient's Primary Tumor).
+    
+    SCIENTIFIC LOGIC: 
+    - TRUNK Mutations: Found in both Primary and Liquid (The 'core' of the cancer).
+    - BRANCH Mutations: Found only in Liquid (Evidence of new evolution/resistance).
+    - DISAPPEARED Mutations: Found in Primary but gone from Liquid (Treatment success).
+    """
+    # Merge the two datasets on the genomic coordinate
+    comparison = pd.merge(
+        primary_df[['ID', 'GENE', 'VAF']], 
+        liquid_df[['ID', 'VAF']], 
+        on='ID', 
+        how='outer', 
+        suffixes=('_Primary', '_Liquid')
+    ).fillna(0)
+
+    logging.info("\n--- CLONAL DYNAMICS: Primary vs. Liquid Biopsy ---")
+    
+    for idx, row in comparison.iterrows():
+        if row['VAF_Primary'] > 0 and row['VAF_Liquid'] > 0:
+            status = "TRUNK (Stable)"
+        elif row['VAF_Primary'] == 0 and row['VAF_Liquid'] > 0:
+            status = "NEW BRANCH (Emerging Resistance!)"
+        else:
+            status = "REGRESSED (Successfully Cleared)"
+            
+        logging.info(f"Mutation {row['ID']} ({row['GENE']}): {status}")
+    
+    return comparison
+
+def plot_fish_plot(comparison_df, output_path):
+    """
+    PURPOSE: Visualizes the clonal shift over time.
+    
+    WHY THIS CHOICE: 
+    In oncology, we use 'Fish Plots' or 'Muller Plots' to show how 
+    clones expand or contract.
+    """
+    plt.figure(figsize=(10, 6))
+    
+    # Prepare data for plotting
+    plot_data = comparison_df.melt(id_vars=['ID', 'GENE'], value_vars=['VAF_Primary', 'VAF_Liquid'])
+    
+    sns.lineplot(data=plot_data, x='variable', y='value', hue='GENE', marker='o', linewidth=3)
+    
+    plt.title("Clonal Evolution: Primary Tumor to Liquid Biopsy Tracking", fontsize=14)
+    plt.ylabel("Variant Allele Frequency (VAF)", fontsize=12)
+    plt.xlabel("Timepoint / Source", fontsize=12)
+    plt.grid(axis='y', alpha=0.3)
+    plt.legend(title="Clone (Gene)")
+    
+    plt.savefig(output_path)
+    logging.info(f"SUCCESS: Evolution Plot saved to {output_path}")
+
+if __name__ == "__main__":
+    # --- PRIVATE LIBRARY DATA (The Patient's Primary Tumor from 6 months ago) ---
+    primary_data = pd.DataFrame({
+        'ID': ['chr17:7577121', 'chr7:55191492'],
+        'GENE': ['TP53', 'EGFR'],
+        'VAF': [0.45, 0.10] # High VAF typical of solid tissue
+    })
+
+    # --- CURRENT LIQUID BIOPSY DATA (Today's EV-RNA results) ---
+    liquid_data = pd.DataFrame({
+        'ID': ['chr17:7577121', 'chr7:55191492', 'chr12:25245350'],
+        'GENE': ['TP53', 'EGFR', 'KRAS'],
+        'VAF': [0.05, 0.00, 0.02] # Low VAF typical of plasma
+    })
+
+    # Step 1: Normalize for purity
+    liquid_data = calculate_clonal_prevalence(liquid_data)
+    
+    # Step 2: Track the shift
+    evolution_df = track_evolution(primary_data, liquid_data)
+    
+    # Step 3: Visualize the dynamics
+    plot_fish_plot(evolution_df, "clonal_evolution_tracking.png")
