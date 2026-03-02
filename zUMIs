@@ -1,0 +1,119 @@
+import yaml
+import os
+import argparse
+
+def create_zumi_yaml(project_name, processed_dir, r1_file, r2_file, refs, protocol_coords, threads):
+    """
+    PURPOSE: Generates a YAML configuration file required by the zUMIs pipeline.
+    
+    WHY THIS CHOICE: 
+    - Using a dictionary to build the YAML ensures the structure is always valid.
+    - 'os.path.abspath' is used for every path. In scalable pipelines (like those 
+       using Docker or Singularity), relative paths often break when the working 
+       directory changes between steps. Absolute paths ensure the tool always 
+       finds the data.
+    """
+    
+    # Nested dictionary representing the zUMIs YAML schema
+    zumi_config = {
+        "project": project_name,
+        "sequence_files": {
+            "run1": {
+                "name": project_name,
+                "base_definition": protocol_coords, # Passed as a list (e.g., ['BC(1-16)'])
+                "file1": os.path.abspath(os.path.join(processed_dir, r1_file)),
+                "file2": os.path.abspath(os.path.join(processed_dir, r2_file))
+            }
+        },
+        "reference": {
+            # CHOICE: Passing 'refs' as a dict allows the pipeline to switch 
+            # between Human/Mouse/Rat databases without changing this function.
+            "genome_dir": os.path.abspath(refs['genome']), 
+            "GTF_file": os.path.abspath(refs['gtf']),
+            "additional_files": ""
+        },
+        "out_dir": os.path.abspath(f"./zumi_output_{project_name}"),
+        "num_threads": threads, # CHOICE: Scalability. Prevents crashing on small nodes.
+        "BC_filter": {
+            "n_cells": 1000, 
+            "low_count_filter": 100
+        }
+    }
+
+    yaml_path = f"{project_name}_zumi_config.yaml"
+    
+    # CHOICE: 'default_flow_style=False' produces a human-readable YAML file,
+    # which is vital for "Sanity Controls" and manual troubleshooting on the server.
+    with open(yaml_path, 'w') as file:
+        yaml.dump(zumi_config, file, default_flow_style=False)
+    
+    return yaml_path
+
+def get_hardware_limit():
+    """
+    PURPOSE: Automatically detects available CPU resources.
+    
+    WHY THIS CHOICE: 
+    Scalable pipelines run on different machines (Local vs. Cloud vs. HPC). 
+    Hard-coding threads = 8 leads to inefficiency or crashes. This choice 
+    optimizes speed based on the current environment.
+    """
+    return os.cpu_count() or 4 # Fallback to 4 if detection fails
+
+def validate_db_paths(refs):
+    """
+    PURPOSE: Pre-run Sanity Check for database files.
+    
+    WHY THIS CHOICE: 
+    Bioinformatics pipelines often fail hours into a run because a reference 
+    file was missing. Checking 'os.path.exists' immediately saves time and 
+    computational credit.
+    """
+    for key, path in refs.items():
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Database error: {key} path '{path}' is invalid.")
+
+if __name__ == "__main__":
+    # --- PROTOCOL DATABASE ---
+    # CHOICE: Centralizing protocol definitions allows the pipeline to handle 
+    # heterogeneous data from a database (e.g., mixing 10x v2 and v3 samples).
+    PROTOCOLS = {
+        "10xv3": ["BC(1-16)", "UMI(17-28)", "cDNA(1-50)"],
+        "10xv2": ["BC(1-16)", "UMI(17-26)", "cDNA(1-50)"]
+    }
+
+    # --- GENOME DATABASE ---
+    # CHOICE: Using a dictionary to map species names to their server paths.
+    GENOME_REFS = {
+        "human": {"genome": "/db/genomes/human/star", "gtf": "/db/genomes/human/genes.gtf"},
+        "mouse": {"genome": "/db/genomes/mouse/star", "gtf": "/db/genomes/mouse/genes.gtf"}
+    }
+
+    # --- EXECUTION ---
+    try:
+        # Step 1: Detect hardware
+        threads = get_hardware_limit()
+        
+        # Step 2: Select database entries (This would normally be a loop through your database)
+        species = "human"
+        current_refs = GENOME_REFS[species]
+        
+        # Step 3: Sanity Check
+        validate_db_paths(current_refs)
+
+        # Step 4: Generate Configuration
+        config_file = create_zumi_yaml(
+            project_name="DB_Sample_001",
+            processed_dir="processed_data",
+            r1_file="sample1_R1_prepared.fastq.gz",
+            r2_file="sample1_R2_trimmed.fastq.gz",
+            refs=current_refs,
+            protocol_coords=PROTOCOLS["10xv3"],
+            threads=threads
+        )
+
+        print(f"PIPELINE STATUS: Config created successfully. Threads allocated: {threads}")
+        print(f"COMMAND: zUMIs.sh -y {config_file}")
+
+    except Exception as e:
+        print(f"PIPELINE CRASH: {e}")
