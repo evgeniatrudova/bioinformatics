@@ -1,0 +1,96 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+
+def check_maftools_logic(vcf_df):
+    """
+    PURPOSE: Analyzes whether mutations are scattered randomly or 
+    clustering together (Clonal Logic).
+    
+    THE BIOLOGICAL PRINCIPLE: 
+    Cancer is "Clonal." This means a single mutated cell divides over 
+    and over. Therefore, you expect to see specific "Hotspots" (genomic 
+    locations) mutated across many reads. 
+    
+    EXPECTED RESULT: 
+    If you see 5 mutations in the same 100bp region of TP53, that's biology. 
+    If you see 5 mutations spread across 5 different chromosomes at random 
+    spots, that's likely technical noise or sequencing error.
+    """
+    if vcf_df.empty:
+        print("SANITY 3 FAILURE: The VCF is empty. No signal to analyze.")
+        return
+
+    # Count how many mutations occur at the same Chromosome and Position
+    hotspot_summary = vcf_df.groupby(['CHR', 'POS']).size().reset_index(name='Frequency')
+    hotspot_summary = hotspot_summary.sort_values(by='Frequency', ascending=False)
+    
+    print("\n" + "="*50)
+    print("      SANITY CHECK 3: CLONAL HOTSPOT SUMMARY      ")
+    print("="*50)
+    # If Frequency > 1, it means multiple 'calls' or samples hit the same spot
+    print(hotspot_summary.head(5))
+    print("="*50 + "\n")
+
+def plot_lollipop_logic(vcf_df, gene_name, output_plot):
+    """
+    PURPOSE: Generates a Lollipop Plot to visualize mutation "Architecture."
+    
+    STUDENT KEY:
+    - THE X-AXIS: Represents the length of the gene (in base pairs).
+    - THE 'LOLLIPOP' HEAD: The height represents the VAF (Variant Allele Frequency).
+    - THE CLUSTERS: If lollipops "huddle" together in a specific box (Domain), 
+      it indicates a 'Hotspot' that likely drives cancer growth.
+    """
+    plt.figure(figsize=(12, 5))
+    
+    # BIOLOGICAL CONTEXT:
+    # Mutations in the 'DNA Binding Domain' of TP53 (approx positions 7.57M to 7.58M)
+    # are scientifically 'Valid.' Mutations outside this are 'Suspicious.'
+    
+    (markerline, stemlines, baseline) = plt.stem(
+        vcf_df['POS'], vcf_df['VAF'] * 100, 
+        linefmt='grey', markerfmt='D', basefmt=" "
+    )
+    
+    # Styling to make it look like a scientific publication (Maftools style)
+    plt.setp(markerline, color='crimson', markersize=8, label='Detected Somatic Mutation')
+    plt.setp(stemlines, linestyle='--', linewidth=1, alpha=0.5)
+    
+    # CHOICE: Highlighting the Functional Domain.
+    # Mutations in this 'box' are much more likely to be clinically relevant.
+    plt.axvspan(vcf_df['POS'].min(), vcf_df['POS'].max(), 
+                color='skyblue', alpha=0.2, label='Active Functional Domain')
+
+    plt.title(f"Clonal Logic Analysis: {gene_name} Hotspots", fontsize=14)
+    plt.xlabel(f"Genomic Position on {vcf_df['CHR'].iloc[0]} (bp)", fontsize=12)
+    plt.ylabel("Variant Allele Frequency (VAF %)", fontsize=12)
+    
+    # Adding a log-scale check: rare variants (0.1%) need to be visible 
+    # next to more common ones (1.0%).
+    plt.yscale('linear') 
+    plt.legend(loc='upper right')
+    plt.grid(axis='y', alpha=0.3)
+    
+    plt.savefig(output_plot)
+    print(f"VISUALIZATION SUCCESS: Lollipop plot generated for {gene_name}.")
+    print(f"CHECK: Do the lollipops cluster in the blue box? (Biology vs. Noise)")
+
+if __name__ == "__main__":
+    # SIMULATED DATABASE: 
+    # Imagine these are the results after CHIP subtraction.
+    # Note how TP53 positions are very close to each other (7.57M range).
+    data = {
+        'CHR': ['chr17', 'chr17', 'chr17', 'chr7', 'chr7'],
+        'POS': [7577121, 7578406, 7577538, 55191492, 55181378],
+        'VAF': [0.012, 0.005, 0.045, 0.002, 0.008], 
+        'GENE': ['TP53', 'TP53', 'TP53', 'EGFR', 'EGFR']
+    }
+    sample_df = pd.DataFrame(data)
+
+    # Execution
+    check_maftools_logic(sample_df)
+    
+    # Focus on TP53: The most common 'Sanity Check' gene in liquid biopsy
+    tp53_data = sample_df[sample_df['GENE'] == 'TP53']
+    plot_lollipop_logic(tp53_data, "TP53", "final_sanity_lollipop.png")
