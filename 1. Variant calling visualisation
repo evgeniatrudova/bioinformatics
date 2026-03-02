@@ -1,0 +1,92 @@
+import pysam
+import matplotlib.pyplot as plt
+import pandas as pd
+import os
+
+def extract_vaf_data(vcf_path):
+    """
+    PURPOSE: Parses the VCF to extract Variant Allele Frequency (VAF) and Depth.
+    
+    EXPECTED RESULT: A table (DataFrame) where each row is a mutation that 
+    the computer thinks is a real somatic variant.
+    """
+    vaf_records = []
+    
+    # Sanity Check: Ensure the file actually exists before trying to open it
+    if not os.path.exists(vcf_path):
+        print(f"Error: {vcf_path} not found.")
+        return pd.DataFrame()
+
+    # pysam.VariantFile reads the compressed VCF (Variant Call Format)
+    vcf_file = pysam.VariantFile(vcf_path)
+    
+    for record in vcf_file:
+        # BIOLOGICAL CHOICE: Mutect2 marks variants with 'PASS' if they 
+        # meet strict quality criteria. We ignore everything else to 
+        # reduce "false positive" noise.
+        if "PASS" in record.filter:
+            try:
+                # AF (Allele Frequency): What fraction of reads show the mutation?
+                # A VAF of 0.01 means 1% of the DNA at this spot is mutated.
+                af = record.samples[0]['AF'][0]
+                
+                # DP (Depth): How many total DNA fragments were read at this spot?
+                # High depth (e.g., >1000x) is required for ultra-low VAF detection.
+                dp = record.samples[0]['DP']
+                
+                vaf_records.append({
+                    'VAF': af, 
+                    'DP': dp, 
+                    'ID': f"{record.chrom}:{record.pos}"
+                })
+            except (KeyError, TypeError, IndexError):
+                # If a record is malformed, we skip it rather than crashing the pipeline
+                continue
+                
+    return pd.DataFrame(vaf_records)
+
+def plot_vaf_distribution(df, output_plot):
+    """
+    PURPOSE: Visualizes the VAF distribution to see the "Sample Profile."
+    
+    SCIENTIFIC MEANING: 
+    - Most somatic mutations in liquid biopsy should be < 1% VAF.
+    - If you see a peak at 50%, you are likely looking at the patient's 
+      normal DNA (Inherited/Germline), not cancer.
+    """
+    if df.empty:
+        print("SANITY ALERT: No 'PASS' variants found. Check your alignment or depth.")
+        return
+
+    plt.figure(figsize=(10, 6))
+    
+    # CHOICE: We multiply VAF by 100 to convert the decimal (0.01) to a percentage (1%).
+    plt.hist(df['VAF'] * 100, bins=50, color='salmon', edgecolor='black', alpha=0.7)
+    
+    # BIOLOGICAL MARKER: The 0.1% line is the "Gold Standard" for ultra-sensitive assays.
+    # Mutations to the left of this line are extremely rare and require UMI-correction.
+    plt.axvline(x=0.1, color='red', linestyle='--', label='Ultra-low VAF Threshold (0.1%)')
+    
+    plt.title("Somatic Mutation Profile (VAF Distribution)", fontsize=14)
+    plt.xlabel("Variant Allele Frequency (%)", fontsize=12)
+    plt.ylabel("Number of Variants (Log Scale)", fontsize=12)
+    
+    # CHOICE: Log scale for Y-axis allows us to see 1 rare mutation just as 
+    # easily as 1,000 common ones.
+    plt.yscale('log') 
+    plt.grid(axis='y', alpha=0.3)
+    plt.legend()
+    
+    plt.savefig(output_plot)
+    print(f"VISUALIZATION COMPLETE: Plot saved to {output_plot}")
+
+if __name__ == "__main__":
+    # Standard file paths used in the Bio-Terminal pipeline
+    VCF_INPUT = "variant_results/final_somatic_variants.vcf.gz"
+    PLOT_OUT = "variant_results/vaf_sanity_check.png"
+    
+    # Step 1: Extract data from the VCF database
+    variant_df = extract_vaf_data(VCF_INPUT)
+    
+    # Step 2: Create the plot for the final dashboard
+    plot_vaf_distribution(variant_df, PLOT_OUT)
